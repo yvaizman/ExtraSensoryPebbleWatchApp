@@ -1,0 +1,20 @@
+{
+    "appKeys": {},
+    "capabilities": [
+        ""
+    ],
+    "companyName": "yvaizman@eng.ucsd.edu",
+    "longName": "ExtraSensory_withWatch",
+    "projectType": "native",
+    "resources": {
+        "media": []
+    },
+    "sdkVersion": "2",
+    "shortName": "ESW",
+    "uuid": "7dee2ab7-366e-4f02-aea0-265d66518fb6",
+    "versionCode": 1,
+    "versionLabel": "1.0",
+    "watchapp": {
+        "watchface": false
+    }
+}
