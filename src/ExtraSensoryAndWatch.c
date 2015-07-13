@@ -6,6 +6,10 @@
 #define TEXTBOX_HEIGHT 2000
 #define ALERT_MAX_SIZE 2000
   
+#define COMPASS_INVALID_VALUE -100
+#define COMPASS_INVALID_TIMESTAMP -1
+#define COMPASS_BUFFER_SIZE 20
+  
 #define MESSAGE_TYPE_KEY_RECORDING 1
 #define MESSAGE_TYPE_KEY_ALERT 2
   
@@ -22,6 +26,9 @@ static bool expecting_answer_from_user = false;
 static bool allow_vibrate = true;
 
 static char temp[24];
+static char temp_compass[24];
+static int compass_headings_buffer[COMPASS_BUFFER_SIZE];
+static int current_compass_position;
 
 static void animate_question(int);
 static int number_of_pixels;
@@ -110,31 +117,90 @@ void send_message(char *str){
   	app_message_outbox_send();
 }
 
+
+static void clean_compass_buffer() {
+  for (uint8_t i = 0; i < COMPASS_BUFFER_SIZE; i ++) {
+    compass_headings_buffer[i] = -77;
+  }
+  current_compass_position = 0;
+}
+
+char temp2[24];
+static void compass_data_handler(CompassHeadingData heading_data) {
+  if (current_compass_position >= COMPASS_BUFFER_SIZE) {
+    // Can't write another compass measurement right now
+    present_message("full");
+    return;
+  }
+  int heading = heading_data.compass_status==CompassStatusDataInvalid ?
+    COMPASS_INVALID_VALUE : TRIGANGLE_TO_DEG(heading_data.magnetic_heading);
+
+  snprintf(temp2, 24, "%d (%d)", heading,(int)TRIGANGLE_TO_DEG(heading_data.magnetic_heading));
+  present_message(temp2);
+  // Add the next value to the buffer:
+  compass_headings_buffer[current_compass_position] = heading;
+  // Progress the position:
+  current_compass_position ++;
+  
+  //if (current_compass_position >= COMPASS_BUFFER_SIZE) {
+    // Time to send the values:
+  //  send_accumulated_compass_headings();
+  //}
+  
+}
+
+
+char buffer_message[24];
 // data handler to recieve accel data from watch
 static void data_handler(AccelData *data, uint32_t num_samples) {
   if(num_samples == 0){
     return;
   }
-   AccelData* d = data;
+  AccelData* d = data;
   
-//   // Prepare dictionary
-   DictionaryIterator *iterator;
-   app_message_outbox_begin(&iterator);
-    
-   for(uint8_t i = 0; i < num_samples; i++, d++) {
-      snprintf(temp, 24, "%d,%d,%d", d->x, d->y, d->z);
-      dict_write_cstring(iterator, i , temp);
-   }  
-  //dict_write_cstring(iterator, 1, s_buffer);
-   app_message_outbox_send();
+// Prepare dictionary
+  DictionaryIterator *iterator;
+  app_message_outbox_begin(&iterator);
+  
+  // Add the acceleration values:
+  for(uint8_t i = 0; i < num_samples; i++, d++) {
+    snprintf(temp, 24, "%d,%d,%d", d->x, d->y, d->z);
+    dict_write_cstring(iterator, i , temp);
   }
 
-void turnOnAccelCollection()
-  {
+  // Add the current compass heading:  
+  //snprintf(buffer_message, 24, "%d", current_compass_position);
+  //present_message(buffer_message);
+  
+//  for(uint8_t j = 0; j < current_compass_position; j++) {
+//    snprintf(temp_compass, 24, "comp:%d", compass_headings_buffer[j]);
+//    dict_write_cstring(iterator, (50+j) , temp_compass);
+//  }
+  app_message_outbox_send();
+//  clean_compass_buffer();
+  
+
+}
+
+void turnOnSensorCollection()
+{
   // subscribe to the accel data 
   uint32_t num_samples = 25;
-  accel_data_service_subscribe(num_samples, data_handler);
   accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ);
+  accel_data_service_subscribe(num_samples, data_handler);
+  
+  
+  // subscribe to compass data:
+  clean_compass_buffer();
+  compass_service_set_heading_filter(TRIG_MAX_ANGLE / 360);
+  compass_service_subscribe(compass_data_handler);
+  
+}
+
+void turnOffSensorCollection()
+{
+  accel_data_service_unsubscribe();
+  compass_service_unsubscribe();
 }
 
 // Called when a message is received from iPhone
@@ -151,14 +217,12 @@ static void in_received_handler(DictionaryIterator *iterator, void *context) {
         APP_LOG(APP_LOG_LEVEL_INFO, "KEY_DATA received with value %s", t->value->cstring);
         if(strcmp(t->value->cstring, "TURN OFF") == 0)
         {
-          accel_data_service_unsubscribe();
+          turnOffSensorCollection();
           layer_set_hidden((Layer *)recording_layer, true);
         }
         if(strcmp(t->value->cstring, "TURN ON") == 0)
         {
-          uint32_t num_samples = 25;
-          accel_data_service_subscribe(num_samples, data_handler);
-          accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ);
+          turnOnSensorCollection();
           layer_set_hidden((Layer *)recording_layer, false);
         }
         break;
@@ -185,6 +249,7 @@ static void out_sent_handler(DictionaryIterator *sent, void *context) {
     // outgoing message was delivered
     APP_LOG(APP_LOG_LEVEL_DEBUG, "DICTIONARY SENT SUCCESSFULLY!");
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Size of Dict: %d", (int)dict_size(sent));
+//  present_message("sent successfully");
 }
 
 // Called when an incoming message from iPhone is dropped
@@ -198,6 +263,7 @@ static void out_failed_handler(DictionaryIterator *failed, AppMessageResult reas
     // outgoing message failed
     //APP_LOG(APP_LOG_LEVEL_DEBUG, "DICTIONARY NOT SENT! ERROR!");
    //APP_LOG(APP_LOG_LEVEL_DEBUG, "In dropped: %i - %s", reason, translate_error(reason));
+//  present_message("send failed");
 }
 
 // when message is recieved, click up button to confirm activity
@@ -262,7 +328,7 @@ static void handle_minute_tick(struct tm* tick_time, TimeUnits units_changed) {
   strftime(hour_minute_text, sizeof(hour_minute_text), "%R", tick_time);
   text_layer_set_text(hour_minute_layer, hour_minute_text);
   
-  static char weekday_text[] = "saturday";
+  static char weekday_text[] = "wednesday";
   strftime(weekday_text, sizeof(weekday_text), "%A", tick_time);
   text_layer_set_text(weekday_layer, weekday_text);
   
@@ -280,7 +346,7 @@ static void main_window_load(Window *window) {
   s_output_layer = create_message_text_layer(0, 0);
   layer_add_child(text_area_layer, text_layer_get_layer(s_output_layer));
 
-  present_message("ExtraSensory watch app launched.");
+  present_message("Welcome to ESW!");
 
   // Digital watch area:
   int16_t y_origin_date = TEXT_AREA_HEIGHT;
