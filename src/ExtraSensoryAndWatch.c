@@ -26,13 +26,15 @@ static bool expecting_answer_from_user = false;
 static bool allow_vibrate = true;
 
 static char temp[24];
-//static char temp_compass[24];
-//static int compass_headings_buffer[COMPASS_BUFFER_SIZE];
-//static int current_compass_position;
+static char temp_compass[24];
+static int compass_headings_buffer[COMPASS_BUFFER_SIZE];
+static int compass_timestamps_buffer[COMPASS_BUFFER_SIZE];
+static int current_compass_position;
 
 static void animate_question(int);
 static int number_of_pixels;
 static void present_message(char *message);
+static void compass_handler(CompassHeadingData data);
 
 
 // Key values for AppMessage Dictionary
@@ -117,28 +119,27 @@ void send_message(char *str){
   	app_message_outbox_send();
 }
 
-/*
+
 static void clean_compass_buffer() {
   for (uint8_t i = 0; i < COMPASS_BUFFER_SIZE; i ++) {
     compass_headings_buffer[i] = -77;
   }
   current_compass_position = 0;
 }
-*/
 
-/*
 char temp2[24];
 static void compass_data_handler(CompassHeadingData heading_data) {
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Compass data handler!");
   if (current_compass_position >= COMPASS_BUFFER_SIZE) {
     // Can't write another compass measurement right now
-    present_message("full");
     return;
   }
   int heading = heading_data.compass_status==CompassStatusDataInvalid ?
     COMPASS_INVALID_VALUE : TRIGANGLE_TO_DEG(heading_data.magnetic_heading);
 
   snprintf(temp2, 24, "%d (%d)", heading,(int)TRIGANGLE_TO_DEG(heading_data.magnetic_heading));
-  present_message(temp2);
+  //present_message(temp2);
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Temp2: %s", temp2);
   // Add the next value to the buffer:
   compass_headings_buffer[current_compass_position] = heading;
   // Progress the position:
@@ -150,14 +151,17 @@ static void compass_data_handler(CompassHeadingData heading_data) {
   //}
   
 }
-*/
 
-//char buffer_message[24];
+
+char buffer_message[24];
 // data handler to recieve accel data from watch
 static void data_handler(AccelData *data, uint32_t num_samples) {
   if(num_samples == 0){
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Data handler - no data samples!");
     return;
   }
+  
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Data handler!");
   AccelData* d = data;
   
 // Prepare dictionary
@@ -169,33 +173,82 @@ static void data_handler(AccelData *data, uint32_t num_samples) {
     snprintf(temp, 24, "%d,%d,%d", d->x, d->y, d->z);
     dict_write_cstring(iterator, i , temp);
   }
-
-  // Add the current compass heading:  
-  //snprintf(buffer_message, 24, "%d", current_compass_position);
-  //present_message(buffer_message);
   
-//  for(uint8_t j = 0; j < current_compass_position; j++) {
-//    snprintf(temp_compass, 24, "comp:%d", compass_headings_buffer[j]);
-//    dict_write_cstring(iterator, (50+j) , temp_compass);
-//  }
+  //for(uint8_t j = 0; j < current_compass_position; j++) {
+  //  snprintf(temp_compass, 24, "comp:%d", compass_headings_buffer[j]);
+  //  dict_write_cstring(iterator, (50+j) , temp_compass);
+  //}
   app_message_outbox_send();
-//  clean_compass_buffer();
+  //clean_compass_buffer();
   
+}
 
+static void send_accumulated_compass_headings() {
+// Prepare dictionary
+  DictionaryIterator *iterator;
+  app_message_outbox_begin(&iterator);
+  
+  for(uint8_t j = 0; j < current_compass_position; j++) {
+    snprintf(temp_compass, 24, "%d:%d", compass_timestamps_buffer[j], compass_headings_buffer[j]);
+    dict_write_cstring(iterator, j , temp_compass);
+  }
+  app_message_outbox_send();
+}
+
+static void compass_handler(CompassHeadingData data) {
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Compass data handler!");
+  // Allocate a static output buffer
+  //static char s_buffer[32];
+
+  // Determine status of the compass
+  switch (data.compass_status) {
+    // Compass data is not yet valid
+    case CompassStatusDataInvalid:
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "Compass data invalid");
+      break;
+
+    // Compass is currently calibrating, but a heading is available
+    case CompassStatusCalibrating:
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "Compass calibrating\nHeading: %d", TRIGANGLE_TO_DEG((int)data.true_heading));
+      break;
+    // Compass data is ready for use, write the heading in to the buffer
+    case CompassStatusCalibrated: 
+      //APP_LOG(APP_LOG_LEVEL_DEBUG, "Compass calibrated\nHeading: %d", TRIGANGLE_TO_DEG((int)data.true_heading));
+      compass_headings_buffer[current_compass_position] = TRIGANGLE_TO_DEG((int)data.true_heading);
+      time_t seconds_past_epoch = time(0);
+      compass_timestamps_buffer[current_compass_position] = (int)seconds_past_epoch;
+      current_compass_position++;
+    break;
+
+    // CompassStatus is unknown
+    default:
+      APP_LOG(APP_LOG_LEVEL_DEBUG, "Unknown CompassStatus: %d", data.compass_status);
+      break;
+  }
+  if (current_compass_position >= COMPASS_BUFFER_SIZE) {
+    // Time to send the values:
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Compass buffer full: %d, %d, %d, ...", compass_headings_buffer[0], compass_headings_buffer[1], compass_headings_buffer[2]);
+    send_accumulated_compass_headings();
+    clean_compass_buffer();        
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Compass buffer emptied: %d, %d, %d, ...", compass_headings_buffer[0], compass_headings_buffer[1], compass_headings_buffer[2]);
+  }
 }
 
 void turnOnSensorCollection()
 {
   // subscribe to the accel data 
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "turnOnSensorCollection");
   uint32_t num_samples = 25;
   accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ);
   accel_data_service_subscribe(num_samples, data_handler);
   
+  time_t seconds_past_epoch = time(0);
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Time since epoch: %d", (int)seconds_past_epoch);
   
   // subscribe to compass data:
-//  clean_compass_buffer();
-//  compass_service_set_heading_filter(TRIG_MAX_ANGLE / 360);
-//  compass_service_subscribe(compass_data_handler);
+  //clean_compass_buffer();
+  compass_service_subscribe(compass_handler);
+  compass_service_set_heading_filter(TRIG_MAX_ANGLE / 360);
   
 }
 
@@ -249,8 +302,8 @@ static void in_received_handler(DictionaryIterator *iterator, void *context) {
 // Called when an outgoing message from watch app was sent successfully
 static void out_sent_handler(DictionaryIterator *sent, void *context) {
     // outgoing message was delivered
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "DICTIONARY SENT SUCCESSFULLY!");
-    APP_LOG(APP_LOG_LEVEL_DEBUG, "Size of Dict: %d", (int)dict_size(sent));
+    //APP_LOG(APP_LOG_LEVEL_DEBUG, "DICTIONARY SENT SUCCESSFULLY!");
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Size of Dict sent: %d", (int)dict_size(sent));
 //  present_message("sent successfully");
 }
 
@@ -264,7 +317,7 @@ static void in_dropped_handler(AppMessageResult reason, void *context) {
 static void out_failed_handler(DictionaryIterator *failed, AppMessageResult reason, void *context) {
     // outgoing message failed
     //APP_LOG(APP_LOG_LEVEL_DEBUG, "DICTIONARY NOT SENT! ERROR!");
-   //APP_LOG(APP_LOG_LEVEL_DEBUG, "In dropped: %i - %s", reason, translate_error(reason));
+   APP_LOG(APP_LOG_LEVEL_DEBUG, "Out dropped: %i - %s", reason, translate_error(reason));
 //  present_message("send failed");
 }
 
