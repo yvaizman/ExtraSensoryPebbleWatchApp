@@ -26,9 +26,9 @@ static bool expecting_answer_from_user = false;
 static bool allow_vibrate = true;
 
 static char temp[24];
-static char temp_compass[24];
-static int compass_headings_buffer[COMPASS_BUFFER_SIZE];
-static int current_compass_position;
+//static char temp_compass[24];
+//static int compass_headings_buffer[COMPASS_BUFFER_SIZE];
+//static int current_compass_position;
 
 static void animate_question(int);
 static int number_of_pixels;
@@ -117,14 +117,16 @@ void send_message(char *str){
   	app_message_outbox_send();
 }
 
-
+/*
 static void clean_compass_buffer() {
   for (uint8_t i = 0; i < COMPASS_BUFFER_SIZE; i ++) {
     compass_headings_buffer[i] = -77;
   }
   current_compass_position = 0;
 }
+*/
 
+/*
 char temp2[24];
 static void compass_data_handler(CompassHeadingData heading_data) {
   if (current_compass_position >= COMPASS_BUFFER_SIZE) {
@@ -148,9 +150,9 @@ static void compass_data_handler(CompassHeadingData heading_data) {
   //}
   
 }
+*/
 
-
-char buffer_message[24];
+//char buffer_message[24];
 // data handler to recieve accel data from watch
 static void data_handler(AccelData *data, uint32_t num_samples) {
   if(num_samples == 0){
@@ -191,9 +193,9 @@ void turnOnSensorCollection()
   
   
   // subscribe to compass data:
-  clean_compass_buffer();
-  compass_service_set_heading_filter(TRIG_MAX_ANGLE / 360);
-  compass_service_subscribe(compass_data_handler);
+//  clean_compass_buffer();
+//  compass_service_set_heading_filter(TRIG_MAX_ANGLE / 360);
+//  compass_service_subscribe(compass_data_handler);
   
 }
 
