@@ -30,11 +30,9 @@ static int current_compass_position;
 static int compass_buffer1[COMPASS_BUFFER_SIZE];
 static int compass_buffer2[COMPASS_BUFFER_SIZE];
 static int* compass_buffer = compass_buffer1;
-static AccelData acc_buffer1;
-static AccelData acc_buffer2;
-static AccelData* acc_buffer = &acc_buffer1;
 static time_t start_time;
 static uint16_t start_time_ms;
+static int32_t t1;
 
 static void animate_question(int);
 static int number_of_pixels;
@@ -125,10 +123,14 @@ static void send_acc_data(AccelData *d) {
   DictionaryIterator *iter;
   app_message_outbox_begin(&iter);
   // Add the acceleration values:
-  char temp[26];
-  for(uint8_t i = 0; i < 25; i++, d++) {
+  char temp[24];
+  uint64_t timestamp = d->timestamp;
+  int dt = (int)(timestamp - t1);
+  snprintf(temp, 24, "%d", dt);
+  dict_write_cstring(iter, 0, temp);
+  for(uint8_t i = 0; i < ACC_BUFFER_SIZE; i++, d++) {
     snprintf(temp, 24, "%d,%d,%d", d->x, d->y, d->z);
-    dict_write_cstring(iter, i , temp);
+    dict_write_cstring(iter, i+1, temp);
   }
   dict_write_end(iter);
   app_message_outbox_send();
@@ -141,7 +143,7 @@ static void send_compass_data(int *compass_buffer) {
   char temp_compass[24];
   for(uint8_t j = 0; j < COMPASS_BUFFER_SIZE-1; j=j+2) {
     snprintf(temp_compass, 24, "%d:%d", compass_buffer[j], compass_buffer[j+1]);
-    dict_write_cstring(iterator, j/2 , temp_compass);
+    dict_write_cstring(iterator, j/2, temp_compass);
   }
   app_message_outbox_send();
 }
@@ -155,7 +157,7 @@ static void clean_compass_buffer() {
 
 // data handler to recieve accel data from watch
 static void data_handler(AccelData *data, uint32_t num_samples) {
-  if(num_samples < 25){
+  if(num_samples < ACC_BUFFER_SIZE){
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Data handler - not enough data samples! %d", (int)num_samples);
     return;
   }
@@ -183,14 +185,12 @@ static void compass_handler(CompassHeadingData data) {
       compass_buffer[current_compass_position] = 0;//TRIGANGLE_TO_DEG((int)data.true_heading);
     time_t sec;
     uint16_t ms;
-int32_t t1, t2, dt;
-time_ms(&sec, &ms);
+    int32_t t2, dt;
+    time_ms(&sec, &ms);
+    t2 = (int32_t)1000*(int32_t)sec + (int32_t)ms;
 
-t1 = (int32_t)1000*(int32_t)start_time + (int32_t)start_time_ms;
-t2 = (int32_t)1000*(int32_t)sec + (int32_t)ms;
-
-// dt is the time spent in milliseconds
-dt = t2 - t1;
+    // dt is the time spent in milliseconds
+    dt = t2 - t1;
     
       APP_LOG(APP_LOG_LEVEL_DEBUG, "t = %d", (int)dt);
       compass_buffer[current_compass_position] = dt;
@@ -238,7 +238,7 @@ static void send_remaining_compass_data(){
 void turnOnSensorCollection() {
   // subscribe to the accel data 
   APP_LOG(APP_LOG_LEVEL_DEBUG, "turnOnSensorCollection");
-  uint32_t num_samples = 25;
+  uint32_t num_samples = ACC_BUFFER_SIZE;
   accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ);
   accel_data_service_subscribe(num_samples, data_handler);
   
@@ -248,7 +248,7 @@ void turnOnSensorCollection() {
   compass_service_set_heading_filter(TRIG_MAX_ANGLE / 360);
   
   time_ms(&start_time, &start_time_ms);
-  
+  t1 = (int32_t)1000*(int32_t)start_time + (int32_t)start_time_ms;
 }
 
 void turnOffSensorCollection() {
