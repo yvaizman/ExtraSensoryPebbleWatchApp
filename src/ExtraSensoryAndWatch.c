@@ -108,20 +108,31 @@ void animate_question(int pixels_to_scroll_by) {
 }
 
 // Write message to buffer & send
-static void send_message(char* message){
+static AppMessageResult send_message(char* message){
   
 	DictionaryIterator *iter;
-	
-	app_message_outbox_begin(&iter);
+	AppMessageResult result;
+	result = app_message_outbox_begin(&iter);
+  if (result != APP_MSG_OK) { 
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Failed to start sending message: %s", translate_error(result));
+    return result; 
+  }
 	dict_write_cstring(iter, MESSAGE_KEY, message);
 	
 	dict_write_end(iter);
-  app_message_outbox_send();
+  result = app_message_outbox_send();
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Tried sending message: %s", translate_error(result));
+  return result;
 }
-static void send_acc_data(AccelData *d) {
+static AppMessageResult send_acc_data(AccelData *d) {
 // Prepare dictionary
   DictionaryIterator *iter;
-  app_message_outbox_begin(&iter);
+  AppMessageResult result;
+  result = app_message_outbox_begin(&iter);
+  if (result != APP_MSG_OK) { 
+    APP_LOG(APP_LOG_LEVEL_DEBUG, "Failed to start sending acceleration data: %s", translate_error(result));
+    return result; 
+  }
   // Add the acceleration values:
   char temp[24];
   uint64_t timestamp = d->timestamp;
@@ -133,7 +144,9 @@ static void send_acc_data(AccelData *d) {
     dict_write_cstring(iter, i+1, temp);
   }
   dict_write_end(iter);
-  app_message_outbox_send();
+  result = app_message_outbox_send();
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Tried sending acceleration data: %s", translate_error(result));
+  return result;
 }
 static void send_compass_data(int *compass_buffer) {
 // Prepare dictionary
@@ -161,7 +174,11 @@ static void data_handler(AccelData *data, uint32_t num_samples) {
     APP_LOG(APP_LOG_LEVEL_DEBUG, "Data handler - not enough data samples! %d", (int)num_samples);
     return;
   }
-  send_acc_data(data);
+  AppMessageResult result = send_acc_data(data);
+  if (result != APP_MSG_OK) {
+    psleep(300);
+    result = send_acc_data(data);
+  }
 }
 
 static void compass_handler(CompassHeadingData data) {
@@ -192,7 +209,7 @@ static void compass_handler(CompassHeadingData data) {
     // dt is the time spent in milliseconds
     dt = t2 - t1;
     
-      APP_LOG(APP_LOG_LEVEL_DEBUG, "t = %d", (int)dt);
+      //APP_LOG(APP_LOG_LEVEL_DEBUG, "t = %d", (int)dt);
       compass_buffer[current_compass_position] = dt;
       current_compass_position++;
     if (current_compass_position >= COMPASS_BUFFER_SIZE) {
@@ -313,7 +330,7 @@ static void in_dropped_handler(AppMessageResult reason, void *context) {
 // Called when an outgoing message from watch app is dropped
 static void out_failed_handler(DictionaryIterator *failed, AppMessageResult reason, void *context) {
   // outgoing message failed
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "Out dropped: %i - %s", reason, translate_error(reason));
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Out dropped: %i - %s: %d", reason, translate_error(reason), (int)dict_read_first(failed)->key);
 }
 
 // when message is recieved, click up button to confirm activity
@@ -321,10 +338,17 @@ static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
   animation_unschedule_all();
   APP_LOG(APP_LOG_LEVEL_DEBUG, "UP Button Pressed!");
   if (expecting_answer_from_user) {
-    send_message("YES");
-    set_expecting_answer(false);
-    present_message("Confirmed as yes! Waiting for new message...");
-    //present_message("");
+    AppMessageResult result = send_message("YES");
+    int count = 0;
+    while ((result != APP_MSG_OK) & (count < 3)) {
+      psleep(300); //miliseconds
+      result = send_message("YES");
+      count++;
+    }
+    if (result == APP_MSG_OK) {
+      set_expecting_answer(false);
+      present_message("Confirmed as yes! Waiting for new message...");
+    }
   }
 }
 
@@ -333,10 +357,17 @@ static void down_click_handler(ClickRecognizerRef recognizer, void *context) {
   animation_unschedule_all();
   APP_LOG(APP_LOG_LEVEL_DEBUG, "DOWN Button Pressed!");  
   if (expecting_answer_from_user) {
-    send_message("NO");
-    set_expecting_answer(false);
-    present_message("Not now! Waiting for new message...");
-    //present_message("");
+    AppMessageResult result = send_message("NO");
+    int count = 0;
+    while ((result != APP_MSG_OK) & (count < 3)) {
+      psleep(300); //miliseconds
+      result = send_message("YES");
+      count++;
+    }
+    if (result == APP_MSG_OK) {
+      set_expecting_answer(false);
+      present_message("Not now! Waiting for new message...");
+    }
   }
   else {
     switch_allow_vibrate();    
