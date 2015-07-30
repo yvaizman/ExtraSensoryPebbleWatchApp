@@ -175,10 +175,10 @@ static void data_handler(AccelData *data, uint32_t num_samples) {
     return;
   }
   AppMessageResult result = send_acc_data(data);
-  if (result != APP_MSG_OK) {
-    psleep(300);
-    result = send_acc_data(data);
-  }
+  //if (result != APP_MSG_OK) {
+  //  psleep(300);
+  //  result = send_acc_data(data);
+  //}
 }
 
 static void compass_handler(CompassHeadingData data) {
@@ -330,7 +330,7 @@ static void in_dropped_handler(AppMessageResult reason, void *context) {
 // Called when an outgoing message from watch app is dropped
 static void out_failed_handler(DictionaryIterator *failed, AppMessageResult reason, void *context) {
   // outgoing message failed
-  APP_LOG(APP_LOG_LEVEL_DEBUG, "Out dropped: %i - %s: %d", reason, translate_error(reason), (int)dict_read_first(failed)->key);
+  APP_LOG(APP_LOG_LEVEL_DEBUG, "Out dropped: %i - %s", reason, translate_error(reason));//, (int)dict_read_first(failed)->key);
 }
 
 // when message is recieved, click up button to confirm activity
