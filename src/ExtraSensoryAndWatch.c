@@ -333,6 +333,17 @@ static void out_failed_handler(DictionaryIterator *failed, AppMessageResult reas
   APP_LOG(APP_LOG_LEVEL_DEBUG, "Out dropped: %i - %s", reason, translate_error(reason));//, (int)dict_read_first(failed)->key);
 }
 
+void bluetooth_handler(bool connected) {
+  if (connected) {
+    present_message("Waiting for new message...");
+  } else {
+    present_message("Phone is not connected");
+    layer_set_hidden((Layer *)recording_layer, true);
+    accel_data_service_unsubscribe();
+    compass_service_unsubscribe();
+  }
+}
+
 // when message is recieved, click up button to confirm activity
 static void up_click_handler(ClickRecognizerRef recognizer, void *context) {
   animation_unschedule_all();
@@ -493,6 +504,9 @@ void init(void) {
 	app_message_register_inbox_dropped(in_dropped_handler); 
   app_message_register_outbox_sent(out_sent_handler);
 	app_message_register_outbox_failed(out_failed_handler);
+  
+  // Register bluetooth connection handler
+  bluetooth_connection_service_subscribe(bluetooth_handler);
   
   // subscribe to the accel data 
   //uint32_t num_samples = 25;
